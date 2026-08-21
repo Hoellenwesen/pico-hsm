@@ -1,0 +1,109 @@
+##############################################################################
+# Secrets — NIEMALS committen
+##############################################################################
+# HSM-PIN, TOTP-Secret, Board-Fingerprint etc. (siehe docs/12-secrets-overview.md)
+config.env
+.env
+.env.*
+!.env.example
+
+# Signierschlüssel für Secure Boot (docs/02-firmware-update-security.md)
+*.pem
+*.key
+!*.pub.pem
+secure-boot-key*
+
+# Sonstige Secret-/Credential-Muster
+*secret*
+*_SECRET*
+*.totp
+credentials.json
+secrets.json
+
+# Backup-/Recovery-Artefakte (docs/09-backup-strategy.md) — enthalten
+# Schlüsselmaterial bzw. Shamir-Shares, gehören nicht ins Repo
+backup-shares/
+*.age
+*.shamir
+
+##############################################################################
+# Build-Artefakte — CMake / natives Build
+##############################################################################
+build/
+build_*/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+cmake_install.cmake
+Makefile
+compile_commands.json
+_deps/
+
+##############################################################################
+# Build-Artefakte — Firmware-Binaries (RP2350/RP2040)
+##############################################################################
+*.uf2
+*.elf
+*.bin
+*.hex
+*.map
+*.dis
+firmware/
+wolftpm-prep/build-artifacts/
+
+##############################################################################
+# Build-Artefakte — Objektdateien / Bibliotheken (falls außerhalb von build*/)
+##############################################################################
+*.o
+*.a
+*.so
+*.dll
+*.obj
+*.lib
+*.exe
+
+##############################################################################
+# Python (Skripte in scripts/, pqvault_integration/)
+##############################################################################
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+##############################################################################
+# Test-/Coverage-Artefakte
+##############################################################################
+Testing/
+*.gcda
+*.gcno
+*.gcov
+coverage/
+
+##############################################################################
+# Editor / IDE
+##############################################################################
+.vscode/
+.idea/
+*.swp
+*~
+
+##############################################################################
+# Betriebssystem
+##############################################################################
+.DS_Store
+Thumbs.db
+
+##############################################################################
+# Docker (lokale Volumes/Overrides, falls welche entstehen)
+##############################################################################
+docker-compose.override.yml
+
+##############################################################################
+# WICHTIG: pico-keys-sdk/ ist ein Git-Submodul, NICHT ignorieren!
+# (kein Eintrag hier nötig, aber bewusst nicht per Wildcard erfasst —
+# *.pem/*.key oben würde NICHT versehentlich Submodul-Dateien treffen,
+# da Submodule als eigener Verzeichniseintrag geführt werden)
+##############################################################################
