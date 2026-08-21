@@ -33,6 +33,21 @@ int cmd_pso(void) {
         }
         if (apdu.data[0] != 0x7F || apdu.data[1] != 0x21) {
             uint8_t tlv_len = 2 + tlv_format_len((uint16_t)apdu.nc, NULL);
+            /* Security fix: without this check, memmove() below shifts
+             * apdu.nc bytes forward by tlv_len bytes starting at
+             * apdu.data, with no verification that the underlying
+             * receive buffer has that much headroom past apdu.data.
+             * Confirmed via AddressSanitizer to overflow the real
+             * USB_BUFFER_SIZE-based receive buffer by up to 5 bytes for
+             * a maximum-length extended APDU (apdu.nc close to
+             * USB_BUFFER_SIZE - 7). Reachable pre-PIN via
+             * MSE:SET (B6) + PSO:Verify Certificate (92/AE/BE), since
+             * cmd_mse.c performs no PIN check. MAX_APDU_DATA already
+             * reserves 20 bytes of headroom project-wide (see sc_hsm.h)
+             * and comfortably covers tlv_len's worst case of 5 bytes. */
+            if ((uint32_t)apdu.nc + tlv_len > MAX_APDU_DATA) {
+                return SW_WRONG_LENGTH();
+            }
             memmove(apdu.data + tlv_len, apdu.data, apdu.nc);
             memcpy(apdu.data, "\x7F\x21", 2);
             tlv_format_len((uint16_t)apdu.nc, apdu.data + 2);

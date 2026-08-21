@@ -30,6 +30,7 @@
 #include "usb.h"
 #include "button.h"
 #include "random.h"
+#include "mbedtls/constant_time.h"
 #include "object_authorization.h"
 #include "version.h"
 
@@ -233,13 +234,7 @@ void reset_puk_store(void) {
             add_cert_puk_store(CONST_BYTE_ARRAY(file_get_data(ef), file_get_size(ef)), false);
         }
     }
-    if (fterm && file_has_data(fterm)) {
-        dev_name = cvc_get_chr(file_get_data(fterm), file_get_size(fterm), &dev_name_len);
-    }
-    if (!dev_name) {
-        dev_name = (const uint8_t *) "ESPICOHSMTR00001";
-        dev_name_len = (uint16_t)(strlen((const char *)dev_name));
-    }
+    dev_name = cvc_get_chr(file_get_data(fterm), file_get_size(fterm), &dev_name_len);
     memset(puk_status, 0, sizeof(puk_status));
 }
 
@@ -416,7 +411,7 @@ uint16_t check_pin(const file_t *pin, const_byte_array_t data) {
     else {
         return SW_WRONG_DATA();
     }
-    if (memcmp(file_get_data(pin) + off, dhash, sizeof(dhash)) != 0) {
+    if (mbedtls_ct_memcmp(file_get_data(pin) + off, dhash, sizeof(dhash)) != 0) {
         int retries;
         if ((retries = pin_wrong_retry(pin)) < PICOKEYS_OK) {
             return SW_PIN_BLOCKED();

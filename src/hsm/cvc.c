@@ -370,8 +370,11 @@ mbedtls_ecp_group_id cvc_inherite_ec_group(const_byte_array_t ca) {
     do {
         chr = cvc_get_chr(ca_data, ca_len, &chr_len);
         car = cvc_get_car(ca_data, ca_len, &car_len);
+        if (!chr || !car) {
+            break;
+        }
         eq = car_len == chr_len ? memcmp(car, chr, chr_len) : -1;
-        if (car && eq != 0) {
+        if (eq != 0) {
             int idx = puk_store_index(CONST_BYTE_ARRAY(car, car_len));
             if (idx != -1) {
                 ca_data = puk_store[idx].cvcert;

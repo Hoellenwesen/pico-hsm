@@ -637,6 +637,11 @@ int cmd_cipher_sym(void) {
                 mbedtls_ecp_keypair_free(&hd_context);
                 return SW_INCORRECT_PARAMS();
             }
+            if (wait_button_pressed() == true) { // timeout
+                mbedtls_ecp_keypair_free(&hd_context);
+                hd_keytype = 0;
+                return SW_SECURE_MESSAGE_EXEC_ERROR();
+            }
             key_size = 32;
             mbedtls_mpi_write_binary(&hd_context.d, kdata, key_size);
             r = mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA512), kdata, key_size,aad.data, aad.len, secret);

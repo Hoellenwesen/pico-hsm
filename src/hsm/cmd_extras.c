@@ -142,7 +142,18 @@ int cmd_extras(void) {
                     newopts[0] |= HSM_OPT_SECURE_LOCK >> 8;
                 }
                 else if (P2(apdu) == SECURE_LOCK_DISABLE) {
-                    newopts[0] &= ~HSM_OPT_SECURE_LOCK >> 8;
+                    /* Fix: '~' binds tighter than '>>' in C, so this was
+                     * previously evaluated as (~HSM_OPT_SECURE_LOCK) >> 8
+                     * instead of the intended ~(HSM_OPT_SECURE_LOCK >> 8).
+                     * Confirmed via standalone test that both currently
+                     * yield the same result for HSM_OPT_SECURE_LOCK
+                     * (0x0400, byte-aligned) - no observed behavior
+                     * change today, but the unparenthesized form is
+                     * technically undefined behavior (right-shift of a
+                     * negative value) and would silently break for any
+                     * future non-byte-aligned option flag reusing this
+                     * pattern. */
+                    newopts[0] &= ~(HSM_OPT_SECURE_LOCK >> 8);
                 }
                 file_t *tf = file_search(EF_DEVOPS);
                 file_put_data(tf, CONST_BYTE_ARRAY(newopts, sizeof(newopts)));
