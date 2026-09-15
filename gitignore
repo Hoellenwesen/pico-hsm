@@ -1,0 +1,72 @@
+# --- CMake / Ninja / Make Build-Verzeichnisse ---
+build/
+build-*/
+cmake-build-*/
+out/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+CMakeUserPresets.json
+Makefile
+*.ninja
+.ninja_log
+.ninja_deps
+compile_commands.json
+
+# --- Firmware-Artefakte (Pico SDK) ---
+*.uf2
+*.elf
+*.elf.map
+*.bin
+*.hex
+*.dis
+*.map
+*.o
+*.obj
+*.a
+*.d
+*.pio.h
+*.dSYM/
+
+# --- Secure-Boot-Keymaterial & generierte OTP-Configs (NIEMALS committen) ---
+*.pem
+ec_private_key.pem
+ec_public_key.pem
+otp_config.json
+otp.json
+*_signed.uf2
+
+# --- C/C++ Unit-Tests (CTest, Unity/cmocka o.ä.) ---
+Testing/
+Test.xml
+DartConfiguration.tcl
+LastTest.log
+CTestTestfile.cmake
+*.gcno
+*.gcda
+*.gcov
+coverage/
+lcov.info
+
+# --- Python-basierte Tests (falls tests/ Python nutzt) ---
+__pycache__/
+*.pyc
+.pytest_cache/
+.tox/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+
+# --- Editor / IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS-Müll ---
+.DS_Store
+Thumbs.db
