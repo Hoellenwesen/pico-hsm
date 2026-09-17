@@ -137,43 +137,200 @@ cmake .. -G Ninja -DPICO_BOARD=pico2 -DUSB_VID=0x1234 -DUSB_PID=0x5678
 
 ---
 
-## 4. Build unter Windows 11 (nativ, VS Code Extension)
+## 4. Build unter Windows 11 (nativ, ohne VS Code Extension)
 
-### 4.1 Voraussetzungen
+VS Code bleibt die IDE zum Coden (Editor/IntelliSense). Build und Flash laufen über eigene, reproduzierbare CLI-Tools und ein PowerShell-Skript – keine Abhängigkeit von der Pico-VS-Code-Extension.
 
-1. [Visual Studio Code](https://code.visualstudio.com/) installieren.
-2. [Git for Windows](https://git-scm.com/download/win) installieren.
-3. In VS Code: Extensions → **„Raspberry Pi Pico"** (offizielle Extension der Raspberry Pi Foundation) installieren.
-   → installiert beim ersten Start automatisch Toolchain (arm-none-eabi-gcc), CMake, Ninja, Python, `picotool` und Pico SDK in `%USERPROFILE%\.pico-sdk` – kein manuelles Toolchain-Setup nötig.
+### 4.1 Benötigte Tools
 
-### 4.2 Repo holen
+`pico-sdk` kompiliert bei jedem Konfigurieren zusätzlich ein paar Host-Werkzeuge (`pioasm`, `elf2uf2`, `picotool`), die auf dem PC selbst laufen, nicht auf dem Pico. Dafür reicht der Arm-Cross-Compiler nicht aus – es wird zusätzlich ein **nativer Windows-Compiler** gebraucht. Unter Linux übernimmt das automatisch das mit `build-essential` installierte native `gcc`; unter Windows genügt dafür MSVC aus den **Visual Studio Build Tools** (Workload „Desktop development with C++"), sofern diese Komponente installiert ist.
+
+| Tool | Zweck | winget-ID |
+|---|---|---|
+| Git for Windows | Repo/Submodule | `Git.Git` |
+| CMake | Build-Konfiguration | `Kitware.CMake` |
+| Ninja | Build-Ausführung | `Ninja-build.Ninja` |
+| Python 3 | von CMake/SDK-Skripten benötigt | `Python.Python.3.12` |
+| Arm GNU Toolchain | Cross-Compiler für RP2350 (**zwingend, kein Ersatz**) | `Arm.ArmGnuToolchain` |
+| VS Build Tools (C++ Workload) | nativer Host-Compiler für pioasm/elf2uf2/picotool | `Microsoft.VisualStudio.BuildTools` |
+| Visual Studio Code | IDE zum Coden | `Microsoft.VisualStudioCode` |
+
+`setup-toolchain.ps1` (einmalig, als normaler Nutzer ausführen – winget ist auf Windows 11 vorinstalliert):
+
+```powershell
+#Requires -Version 5.1
+<#
+    Einmalige Tool-Installation für den nativen pico-hsm Windows-Build.
+#>
+
+$ErrorActionPreference = "Stop"
+
+function Install-Winget {
+    param([string]$Id, [string[]]$Override)
+    Write-Host "==> $Id"
+    if ($Override) {
+        winget install --id $Id --silent --accept-package-agreements --accept-source-agreements --override ($Override -join " ")
+    } else {
+        winget install --id $Id --silent --accept-package-agreements --accept-source-agreements
+    }
+}
+
+Install-Winget "Git.Git"
+Install-Winget "Kitware.CMake"
+Install-Winget "Ninja-build.Ninja"
+Install-Winget "Python.Python.3.12"
+Install-Winget "Microsoft.VisualStudioCode"
+Install-Winget "Arm.ArmGnuToolchain"
+
+Write-Host "`n==> VS Build Tools: C++ Workload sicherstellen (idempotent, ergaenzt fehlende Komponenten)"
+Install-Winget "Microsoft.VisualStudio.BuildTools" -Override @("--quiet", "--wait", "--add", "Microsoft.VisualStudio.Workload.VCTools", "--includeRecommended")
+
+Write-Host "`nFertig. Neues PowerShell-Fenster oeffnen (PATH-Aenderungen greifen erst dann), danach build.ps1 verwenden."
+Write-Host "Hinweis: Arm.ArmGnuToolchain ueberschreibt teils die bestehende User-PATH-Variable - `$env:Path danach kurz pruefen."
+```
+
+> **Bekannter winget-Bug:** `Arm.ArmGnuToolchain` überschreibt beim Installieren teils die komplette user-scope `PATH`-Variable statt daran anzuhängen ([microsoft/winget-pkgs#123489](https://github.com/microsoft/winget-pkgs/issues/123489)). Nach der Installation `$env:Path` kurz prüfen. `build.ps1` unten verlässt sich deshalb bewusst **nicht** auf permanente PATH-Einträge, sondern setzt die nötigen Compiler-Pfade pro Aufruf selbst.
+
+### 4.2 Repos holen
 
 ```powershell
 git clone https://github.com/Hoellenwesen/pico-hsm.git
 cd pico-hsm
 git submodule update --init --recursive
+
+cd ..
+git clone -b 2.3.1 https://github.com/raspberrypi/pico-sdk.git
+cd pico-sdk
+git submodule update --init --recursive
 ```
 
-(Patches aus Abschnitt 1 vorher im Repo committet/gepusht haben, oder lokal anwenden.)
+(Patches aus Abschnitt 1 vorher im `pico-hsm`-Repo committet/gepusht haben, oder lokal anwenden.)
 
-### 4.3 Projekt in der Extension importieren
+Layout danach:
+```
+C:\dev\
+├── pico-hsm\
+└── pico-sdk\
+```
 
-1. Ordner `pico-hsm` in VS Code öffnen.
-2. Command Palette (`Strg+Umschalt+P`) → **„Raspberry Pi Pico: Import Project"**.
-3. SDK-Version **2.3.1** wählen (identisch zur Linux-Seite, für reproduzierbare Builds).
-4. Board **Pico 2** (RP2350) auswählen.
-5. Die Extension legt `.vscode/settings.json` mit den passenden CMake-Variablen an (`PICO_BOARD=pico2` etc.) und konfiguriert CMake automatisch neu.
+### 4.3 `build.ps1`
 
-Eigene VID/PID: in `.vscode/settings.json` unter `cmake.configureArgs` ergänzen:
+Im Root von `pico-hsm` als `build.ps1` ablegen:
+
+```powershell
+#Requires -Version 5.1
+<#
+    Baut die pico-hsm Firmware fuer den Raspberry Pi Pico 2 (RP2350).
+    Setzt PICO_SDK_PATH und Compiler-Pfade nur fuer diesen Skript-Lauf.
+
+    Beispiele:
+      .\build.ps1
+      .\build.ps1 -UsbVid 0x1234 -UsbPid 0x5678
+      .\build.ps1 -Clean
+#>
+param(
+    [string]$PicoSdkPath = (Join-Path $PSScriptRoot "..\pico-sdk"),
+    [string]$UsbVid,
+    [string]$UsbPid,
+    [switch]$Clean
+)
+
+$ErrorActionPreference = "Stop"
+
+# --- Arm GNU Toolchain (Ziel-Compiler fuer RP2350) ---
+$armRoot = "C:\Program Files (x86)\Arm GNU Toolchain arm-none-eabi"
+if (-not (Test-Path $armRoot)) { throw "Arm GNU Toolchain nicht gefunden unter '$armRoot' - setup-toolchain.ps1 ausgefuehrt?" }
+$armBin = Get-ChildItem $armRoot -Directory |
+    Sort-Object Name -Descending |
+    Select-Object -First 1 |
+    ForEach-Object { Join-Path $_.FullName "bin" }
+
+$env:PATH = "$armBin;$env:PATH"
+
+# --- MSVC (nativer Host-Compiler fuer pioasm/elf2uf2/picotool) aus VS Build Tools laden ---
+function Import-VisualStudioEnvironment {
+    param([string]$Arch = "x64")
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $vswhere)) { throw "vswhere.exe nicht gefunden - VS Build Tools installiert?" }
+    $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if (-not $vsPath) { throw "VS Build Tools ohne C++ Workload gefunden - setup-toolchain.ps1 erneut ausfuehren (installiert die Workload nach)." }
+    $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvarsall.bat"
+    $tempFile = [System.IO.Path]::GetTempFileName()
+    cmd /c "`"$vcvars`" $Arch && set > `"$tempFile`""
+    Get-Content $tempFile | ForEach-Object {
+        if ($_ -match "^([^=]+)=(.*)$") {
+            [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2])
+        }
+    }
+    Remove-Item $tempFile
+}
+Import-VisualStudioEnvironment
+
+if (-not (Test-Path $PicoSdkPath)) { throw "pico-sdk nicht gefunden unter '$PicoSdkPath' (Parameter -PicoSdkPath anpassen)" }
+$env:PICO_SDK_PATH = (Resolve-Path $PicoSdkPath).Path
+
+Write-Host "PICO_SDK_PATH : $env:PICO_SDK_PATH"
+Write-Host "Arm Toolchain : $armBin"
+Write-Host "MSVC (Host)   : $(Get-Command cl.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)"
+
+Push-Location $PSScriptRoot
+try {
+    git submodule update --init --recursive
+    if ($LASTEXITCODE -ne 0) { throw "git submodule update fehlgeschlagen" }
+
+    $buildDir = Join-Path $PSScriptRoot "build"
+    if ($Clean -and (Test-Path $buildDir)) {
+        Remove-Item $buildDir -Recurse -Force
+    }
+
+    $cmakeArgs = @(
+        "-S", $PSScriptRoot, "-B", $buildDir,
+        "-G", "Ninja",
+        "-DPICO_BOARD=pico2",
+        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    )
+    if ($UsbVid) { $cmakeArgs += "-DUSB_VID=$UsbVid" }
+    if ($UsbPid) { $cmakeArgs += "-DUSB_PID=$UsbPid" }
+
+    cmake @cmakeArgs
+    if ($LASTEXITCODE -ne 0) { throw "cmake configure fehlgeschlagen" }
+
+    cmake --build $buildDir
+    if ($LASTEXITCODE -ne 0) { throw "Build fehlgeschlagen" }
+
+    $uf2 = Join-Path $buildDir "pico_hsm.uf2"
+    if (Test-Path $uf2) {
+        Write-Host "`nBuild OK: $uf2"
+    } else {
+        Write-Warning "Build durchgelaufen, aber pico_hsm.uf2 nicht unter '$uf2' gefunden."
+    }
+}
+finally {
+    Pop-Location
+}
+```
+
+Aufruf:
+
+```powershell
+cd C:\dev\pico-hsm
+.\build.ps1
+```
+
+Ergebnis: `build\pico_hsm.uf2`. Eigene VID/PID: `.\build.ps1 -UsbVid 0x1234 -UsbPid 0x5678`. Clean-Rebuild: `.\build.ps1 -Clean`.
+
+### 4.4 VS Code als reines Editor/IntelliSense-Setup
+
+`build.ps1` setzt `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`, damit die normale **C/C++ Extension** von Microsoft (nicht die Pico-Extension) korrektes IntelliSense bekommt. In `pico-hsm\.vscode\settings.json`:
 
 ```json
-"cmake.configureArgs": ["-DUSB_VID=0x1234", "-DUSB_PID=0x5678"]
+{
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+    "cmake.configureOnOpen": false
+}
 ```
 
-### 4.4 Bauen
-
-Über die Statusleiste unten (Pico-Icon) → **„Compile Project"**, oder Command Palette → **„Raspberry Pi Pico: Compile Project"**.
-Ergebnis: `build/pico_hsm.uf2`.
+`.vscode/` bleibt trotzdem im `.gitignore`, da `compile_commands.json`-Pfade und ggf. weitere Extension-Settings maschinenspezifisch sind.
 
 ---
 
@@ -185,7 +342,7 @@ Ergebnis: `build/pico_hsm.uf2`.
 4. Das Laufwerk trennt sich automatisch, Pico startet neu mit der Firmware.
 5. LED blinkt → Firmware läuft.
 
-Unter Windows geht das auch per Extension-Button **„Run Project"** (nutzt intern `picotool`, kein manuelles BOOTSEL nötig, wenn schon eine ältere Pico-HSM-Version läuft).
+Alternativ per `picotool` (Abschnitt 7.1) ohne manuelles BOOTSEL, wenn bereits eine ältere Pico-HSM-Version läuft: `picotool load -f build\pico_hsm.uf2`.
 
 ---
 
@@ -226,7 +383,7 @@ make -j$(nproc)
 sudo make install
 ```
 
-**Windows**: liegt bereits durch die VS-Code-Extension unter `%USERPROFILE%\.pico-sdk\picotool\<version>\picotool.exe` – Pfad zu `PATH` hinzufügen oder direkt aus dem Extension-Terminal aufrufen.
+**Windows**: fertige Binaries von `https://github.com/raspberrypi/pico-sdk-tools/releases` laden (enthält `picotool.exe` für Windows x64) – einfachster Weg, kein eigener Build nötig. Alternativ selbst aus Quelle bauen, mit denselben Tools wie in Abschnitt 4.1 (`PICO_SDK_PATH` wie in `build.ps1` setzen, dann `cmake -G Ninja -DPICOTOOL_FLAT_INSTALL=1` + `ninja` im `picotool`-Checkout).
 
 ### 7.2 Signierschlüssel erzeugen
 
