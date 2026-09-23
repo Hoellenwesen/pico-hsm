@@ -7,9 +7,10 @@
       .\build.ps1
       .\build.ps1 -UsbVid 0x1234 -UsbPid 0x5678
       .\build.ps1 -Clean
+      .\build.ps1 -PicoSdkPath "D:\Tools\RaspberryPi-Pico\v2.3.1\pico-sdk"
 #>
 param(
-    [string]$PicoSdkPath = (Join-Path $PSScriptRoot "..\pico-sdk"),
+    [string]$PicoSdkPath = "",
     [string]$UsbVid,
     [string]$UsbPid,
     [switch]$Clean
@@ -46,7 +47,10 @@ function Import-VisualStudioEnvironment {
 }
 Import-VisualStudioEnvironment
 
-if (-not (Test-Path $PicoSdkPath)) { throw "pico-sdk nicht gefunden unter '$PicoSdkPath' (Parameter -PicoSdkPath anpassen)" }
+# SDK-Pfad-Precedence: -PicoSdkPath > $env:PICO_SDK_PATH > sibling ..\pico-sdk (Doku-Standard).
+if ([string]::IsNullOrWhiteSpace($PicoSdkPath)) { $PicoSdkPath = $env:PICO_SDK_PATH }
+if ([string]::IsNullOrWhiteSpace($PicoSdkPath)) { $PicoSdkPath = (Join-Path $PSScriptRoot "..\pico-sdk") }
+if (-not (Test-Path $PicoSdkPath)) { throw "pico-sdk nicht gefunden unter '$PicoSdkPath' (-PicoSdkPath oder `$env:PICO_SDK_PATH setzen)" }
 $env:PICO_SDK_PATH = (Resolve-Path $PicoSdkPath).Path
 
 Write-Host "PICO_SDK_PATH : $env:PICO_SDK_PATH"
